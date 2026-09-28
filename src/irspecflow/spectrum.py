@@ -1,0 +1,1 @@
+"""Core spectrum data structures."""

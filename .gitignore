@@ -1,0 +1,43 @@
+# ================================================================
+# IRSpecFlow repository ignore list
+# ================================================================
+
+# ---- Python -----------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+
+# ---- Virtual environments --------------------------------------
+.venv/
+venv/
+env/
+envs/
+
+# ---- Editors and IDEs -------------------------------------------
+.vscode/
+.idea/
+*.swp
+*~
+
+# ---- Operating system clutter ----------------------------------
+.DS_Store
+._*
+Thumbs.db
+desktop.ini
+
+# ---- Secrets and local configuration ----------------------------
+.env
+*.pem
+*.key
+credentials*
+token*
+
+# ---- Jupyter ----------------------------------------------------
+.ipynb_checkpoints/
+
+# ---- Test and coverage output ----------------------------------
+.coverage
+htmlcov/

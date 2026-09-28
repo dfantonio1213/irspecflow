@@ -1,0 +1,1 @@
+"""Structural validation utilities for infrared spectra."""
