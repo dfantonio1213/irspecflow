@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from irspecflow.io import read_spectrum
+from irspecflow.validation import validate_spectrum
 
 
 data_file = (
@@ -25,6 +26,8 @@ spectrum = read_spectrum(
     },
 )
 
+findings = validate_spectrum(spectrum)
+
 print("Spectrum ID:", spectrum.spectrum_id)
 print("Axis:", spectrum.axis)
 print("Response:", spectrum.response)
@@ -32,3 +35,4 @@ print(
     "Source file:",
     spectrum.metadata["provenance"]["import"]["source_filename"],
 )
+print("Validation findings:", findings)

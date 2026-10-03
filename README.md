@@ -6,7 +6,7 @@ IRSpecFlow is a Python package under development for importing, validating, prep
 
 ## Status
 
-IRSpecFlow is in early development. The current implementation provides a `Spectrum` data model for one-dimensional infrared spectra and a generic importer for reading one local delimited-text spectrum file into a `Spectrum` object.
+IRSpecFlow is in early development. The current implementation provides a `Spectrum` data model for one-dimensional infrared spectra, a generic importer for reading one local delimited-text spectrum file into a `Spectrum`, and structural validation for defined conditions observable from one stored spectrum.
 
 ### Spectrum model
 
@@ -23,7 +23,7 @@ The `Spectrum` interface supports:
 - acquisition, sample, instrument, provenance, and other metadata;
 - package-level import with `from irspecflow import Spectrum`.
 
-The `Spectrum` constructor checks only the requirements needed to store a spectrum consistently. It does not currently reject missing numerical values (`NaN`, meaning "not a number"), infinite values, duplicated axis values, non-monotonic ordering (an axis that does not consistently increase or decrease), empty or very short spectra, or unit declarations based on their scientific meaning.
+The `Spectrum` constructor checks only the requirements needed to store a spectrum consistently. It permits structural conditions such as missing numerical values (`NaN`, meaning "not a number"), infinite values, duplicated axis values, non-monotonic ordering (an axis that does not consistently increase or decrease), empty spectra, and unrecognized scientific declarations when they are otherwise representable. These conditions can be inspected separately with `irspecflow.validation.validate_spectrum()` rather than being rejected or corrected during storage.
 
 ### Delimited-text import
 
@@ -55,7 +55,32 @@ The importer does not automatically detect delimiters, whether a header is prese
 
 Import is separate from structural validation and spectral processing. `read_spectrum()` preserves parsed row order and does not intentionally alter the selected numerical values beyond conversion to the `Spectrum` `float64` representation. It does not sort or reverse the spectral axis, remove duplicate values, reject non-monotonic spectra, convert between units or response quantities, interpolate, smooth, correct baselines, or calculate quality-control metrics. It also does not scan directories, import batches of files, or provide dedicated readers for proprietary or vendor-specific instrument formats.
 
-Conditions such as `NaN`, positive or negative infinity, duplicate axis values, and non-monotonic ordering are preserved rather than rejected during import. A header-based table with the requested columns but no data rows is also accepted and produces an empty `Spectrum`. These structural conditions are left for later validation.
+Conditions such as `NaN`, positive or negative infinity, duplicate axis values, and non-monotonic ordering are preserved rather than rejected during import. A header-based table with the requested columns but no data rows is also accepted and produces an empty `Spectrum`. These conditions remain in the imported `Spectrum` so structural validation can report them without modifying the imported data.
+
+### Structural validation
+
+`irspecflow.validation.validate_spectrum()` inspects one `Spectrum` and reports defined structural conditions without modifying the stored spectrum. It returns a tuple of `ValidationFinding` objects in a consistent, deterministic order. Each finding contains a stable machine-readable `code` and a human-readable `message`.
+
+Structural validation checks for:
+
+- empty spectra;
+- `NaN`, positive infinity, and negative infinity in the spectral axis and response as separate conditions;
+- exactly duplicated finite axis values;
+- genuine reversals in the direction of a fully finite spectral axis;
+- unrecognized axis-unit, response-type, and response-unit declarations;
+- the inconsistent combination of an absorbance response declared with the `%` response unit.
+
+Strictly increasing and strictly decreasing finite axes are both accepted. Repeated axis values are reported separately from direction reversals. Duplicate detection uses exact stored `float64` values; near-equal values are not treated as duplicates. If the axis contains a non-finite value, the validator reports the relevant non-finite condition but does not make a monotonicity judgment.
+
+An empty spectrum produces an `empty_spectrum` finding. A one-point spectrum can have no findings when its axis and response values are finite and its supplied declarations are recognized or omitted and mutually consistent where applicable. Two distinct finite axis values are accepted whether they increase or decrease. The validator does not impose a universal minimum number of spectral points beyond detecting an empty spectrum.
+
+Scientific declarations remain optional. When supplied, recognition is exact and case-sensitive: `cm^-1` is the recognized axis unit, `absorbance` and `transmittance` are the recognized response types, and `%` is the recognized supplied response unit. The combination `response_type="transmittance"` with `response_unit="%"` is accepted, while `response_type="absorbance"` with `response_unit="%"` produces an inconsistency finding. Alternate spellings, capitalization, Unicode notation, aliases, and surrounding whitespace are not normalized automatically.
+
+A spectrum with no detected structural findings returns an empty tuple, `()`. This means only that none of the structural conditions defined by this validator were detected. It does not establish measurement quality or determine whether the spectrum is scientifically suitable for a particular analysis.
+
+Structural conditions in a legitimate `Spectrum` are returned as findings. Passing an object that is not a `Spectrum` is instead an API usage error and raises `TypeError`.
+
+Validation is inspection-only. It does not sort or reverse the axis, remove duplicate or non-finite values, convert axis or response units, convert between absorbance and transmittance, interpolate, repair spectra, perform preprocessing, or calculate measurement-quality or replicate-level quality-control metrics.
 
 ## Basic Usage
 
@@ -63,6 +88,7 @@ After cloning the repository and installing IRSpecFlow, the included synthetic C
 
 ```python
 from irspecflow.io import read_spectrum
+from irspecflow.validation import validate_spectrum
 
 spectrum = read_spectrum(
     "data/example_spectrum.csv",
@@ -73,9 +99,14 @@ spectrum = read_spectrum(
     spectrum_id="example-spectrum",
 )
 
+findings = validate_spectrum(spectrum)
+
 print(spectrum.axis)
 print(spectrum.response)
+print(findings)
 ```
+
+For this included example, `findings` is an empty tuple because none of the structural conditions checked by the validator are present.
 
 The import record shows the source filename and parsing settings used to produce the `Spectrum`. The filename is recorded without storing its full filesystem path:
 
@@ -123,7 +154,7 @@ spectrum = Spectrum(
 )
 ```
 
-A runnable import example is available in `examples/basic_workflow.py`.
+A runnable import-and-validation example is available in `examples/basic_workflow.py`.
 
 ## Current Import Scope
 
@@ -148,7 +179,6 @@ The current import interface does not provide:
 
 Future releases are planned to add:
 
-- structural spectral validation;
 - absorbance and transmittance conversion utilities;
 - utilities for common spectral grids and interpolation;
 - spectral visualization and quantitative quality control;
@@ -179,7 +209,8 @@ irspecflow/
 │       └── validation.py
 ├── tests/
 │   ├── test_import.py
-│   └── test_spectrum.py
+│   ├── test_spectrum.py
+│   └── test_validation.py
 ├── .gitignore
 ├── README.md
 └── pyproject.toml
