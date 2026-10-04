@@ -18,8 +18,8 @@ class Spectrum:
     ``Spectrum`` performs only the minimal checks needed to maintain a
     consistent in-memory representation. Broader structural validation,
     including checks for missing or non-finite values, duplicated axis values,
-    monotonicity, recognized units, and plausible spectrum length, belongs in
-    :mod:`irspecflow.validation`.
+    monotonicity, recognized scientific declarations, and empty spectra,
+    belongs in :mod:`irspecflow.validation`.
 
     Parameters
     ----------
@@ -41,6 +41,16 @@ class Spectrum:
     metadata : Mapping[str, Any] or None, optional
         Mapping containing acquisition, sample, instrument, provenance,
         or user-defined metadata.
+
+    Raises
+    ------
+    TypeError
+        If numerical input cannot be represented as real numeric values, an
+        optional descriptive field is not a string or None, or ``hierarchy``
+        or ``metadata`` is not a mapping or None.
+    ValueError
+        If ``axis`` or ``response`` is not one-dimensional, or if the axis
+        and response contain different numbers of values.
 
     Notes
     -----

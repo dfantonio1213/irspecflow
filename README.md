@@ -6,7 +6,7 @@ IRSpecFlow is a Python package under development for importing, validating, prep
 
 ## Status
 
-IRSpecFlow is in early development. The current implementation provides a `Spectrum` data model for one-dimensional infrared spectra, a generic importer for reading one local delimited-text spectrum file into a `Spectrum`, and structural validation for defined conditions observable from one stored spectrum.
+IRSpecFlow is in early development. The current implementation provides a `Spectrum` data model for one-dimensional infrared spectra, a generic importer for reading one local delimited-text spectrum file into a `Spectrum`, structural validation for defined conditions observable from one stored spectrum, and explicit single-spectrum transformations for percent-transmittance-to-absorbance conversion and linear interpolation to a caller-supplied target axis.
 
 ### Spectrum model
 
@@ -82,12 +82,143 @@ Structural conditions in a legitimate `Spectrum` are returned as findings. Passi
 
 Validation is inspection-only. It does not sort or reverse the axis, remove duplicate or non-finite values, convert axis or response units, convert between absorbance and transmittance, interpolate, repair spectra, perform preprocessing, or calculate measurement-quality or replicate-level quality-control metrics.
 
-## Basic Usage
+### Spectral transformations
 
-After cloning the repository and installing IRSpecFlow, the included synthetic CSV can be imported from the repository root with explicit column selection and scientific descriptors:
+`irspecflow.transformations` provides two explicit transformations for one `Spectrum`:
+
+- percent-transmittance-to-absorbance conversion with `transmittance_to_absorbance()`;
+- linear interpolation to an explicit caller-supplied target axis with `interpolate_spectrum()`.
+
+Both operations return new ordinary `Spectrum` objects and leave the supplied source spectrum unchanged. `Spectrum` subclasses are accepted as inputs, but the returned object uses the ordinary `Spectrum` representation.
+
+#### Percent transmittance to absorbance
+
+`transmittance_to_absorbance()` converts percent transmittance to absorbance according to:
+
+```text
+A = -log10(T / 100)
+```
+
+where `T` is the percent-transmittance value.
+
+The input spectrum must:
+
+- contain at least one spectral point;
+- declare `response_type="transmittance"` exactly;
+- declare `response_unit="%"` exactly;
+- contain only finite response values;
+- contain response values strictly greater than zero.
+
+Missing, alternate, or incompatible response declarations are not inferred or normalized.
+
+Values above `100 %T` remain mathematically valid inputs. They may produce negative absorbance values, but IRSpecFlow does not treat that condition alone as a transformation failure. Scientific plausibility and measurement-quality judgments remain separate quality-control concerns.
+
+Structural conditions limited to the spectral axis do not prevent response conversion because the calculation operates only on response values. The spectral axis is preserved exactly as stored.
+
+The returned spectrum has:
+
+- the converted absorbance response;
+- `response_type="absorbance"`;
+- `response_unit=None`;
+- the original axis values and order;
+- the original axis unit;
+- the original spectrum identifier;
+- preserved hierarchy and unrelated metadata;
+- preserved import provenance and earlier transformation provenance.
+
+#### Linear interpolation
+
+`interpolate_spectrum()` linearly interpolates one spectrum onto an explicit `target_axis`.
+
+The source spectrum must contain:
+
+- at least two spectral points;
+- finite axis values;
+- finite response values;
+- no duplicate finite axis values;
+- an axis that is consistently increasing or consistently decreasing.
+
+Scientific declaration findings do not prevent interpolation when the stored numerical values otherwise satisfy these requirements. The operation does not infer or convert scientific units.
+
+The target axis must:
+
+- be one-dimensional;
+- contain real numeric values;
+- contain at least one value;
+- contain only finite values;
+- contain no exact duplicate values after numerical preparation.
+
+A target containing two or more points must be strictly increasing or strictly decreasing. A one-point target is valid.
+
+Every target value must lie within the closed numerical range of the source axis. Exact source endpoints are accepted. Values outside the source range are rejected rather than extrapolated or clipped.
+
+Increasing and decreasing source axes are both supported. Increasing and decreasing target axes are also supported, and the returned `Spectrum` preserves the caller's requested target order.
+
+`target_axis` is assumed to represent the same physical coordinate system and unit as the source axis. Interpolation does not perform axis-unit conversion.
+
+The operation does not extrapolate, clip values to the source range, sort the caller's target axis, remove duplicates, or otherwise repair the source or target data.
+
+Interpolating onto a target axis numerically identical to the source axis still returns a distinct new `Spectrum` and records the interpolation.
+
+#### Transformation provenance
+
+Each successful transformation appends one record to:
 
 ```python
+metadata["provenance"]["transformations"]
+```
+
+The value is an ordered list, so transformation order is retained across chained operations.
+
+Percent-transmittance-to-absorbance conversion records:
+
+```python
+{
+    "operation": (
+        "irspecflow.transformations."
+        "transmittance_to_absorbance"
+    )
+}
+```
+
+Linear interpolation records:
+
+```python
+{
+    "operation": (
+        "irspecflow.transformations."
+        "interpolate_spectrum"
+    ),
+    "method": "linear",
+}
+```
+
+Existing import provenance, unrelated provenance information, unrelated metadata, and previous transformation entries are preserved. Transformation metadata handling does not modify the source spectrum's metadata in place.
+
+The full target axis and numerical response arrays are not duplicated in provenance because the returned `Spectrum` already contains the transformed numerical data.
+
+Import the transformation functions from their module:
+
+```python
+from irspecflow.transformations import (
+    interpolate_spectrum,
+    transmittance_to_absorbance,
+)
+```
+
+The transformation functions are not re-exported from the package root.
+
+## Basic Usage
+
+After cloning the repository and installing IRSpecFlow, the included synthetic absorbance CSV can be imported from the repository root with explicit column selection and scientific descriptors:
+
+```python
+from irspecflow import Spectrum
 from irspecflow.io import read_spectrum
+from irspecflow.transformations import (
+    interpolate_spectrum,
+    transmittance_to_absorbance,
+)
 from irspecflow.validation import validate_spectrum
 
 spectrum = read_spectrum(
@@ -108,13 +239,56 @@ print(findings)
 
 For this included example, `findings` is an empty tuple because none of the structural conditions checked by the validator are present.
 
-The import record shows the source filename and parsing settings used to produce the `Spectrum`. The filename is recorded without storing its full filesystem path:
+The imported absorbance spectrum can then be interpolated explicitly to an in-range target axis:
+
+```python
+interpolated = interpolate_spectrum(
+    spectrum,
+    [4000.0, 2500.0, 1000.0, 400.0],
+)
+
+print(interpolated.axis)
+print(interpolated.response)
+print(
+    interpolated.metadata["provenance"]["transformations"]
+)
+```
+
+The interpolation returns a new `Spectrum`; the imported source remains unchanged. Its import provenance is preserved in the transformed result.
+
+The import record for the original spectrum shows the source filename and parsing settings used to construct it. The filename is recorded without storing its full filesystem path:
 
 ```python
 print(spectrum.metadata["provenance"]["import"])
 ```
 
-Caller-supplied metadata is not modified when the import record is added. Existing unrelated provenance information is preserved. If the metadata already contains an identical import record under `metadata["provenance"]["import"]`, it is accepted. If a different import record already exists there, the import fails rather than silently replacing it.
+Percent-transmittance-to-absorbance conversion can be demonstrated with a directly constructed spectrum:
+
+```python
+transmittance_spectrum = Spectrum(
+    axis=[4000.0, 2500.0, 1000.0],
+    response=[100.0, 50.0, 10.0],
+    axis_unit="cm^-1",
+    response_type="transmittance",
+    response_unit="%",
+    spectrum_id="example-transmittance",
+)
+
+converted = transmittance_to_absorbance(
+    transmittance_spectrum
+)
+
+print(converted.response)
+print(converted.response_type)
+print(converted.response_unit)
+print(
+    converted.metadata["provenance"]["transformations"]
+)
+```
+
+The original percent-transmittance spectrum remains unchanged.
+
+Caller-supplied metadata is not modified when import or transformation provenance is added. Existing unrelated provenance information is preserved.
 
 For a file that begins with comment or metadata lines, supply the relevant prefix explicitly:
 
@@ -139,7 +313,7 @@ spectrum = read_spectrum(
 )
 ```
 
-Import the function with `from irspecflow.io import read_spectrum`. `from irspecflow import read_spectrum` is not currently supported.
+Import `read_spectrum()` from `irspecflow.io` and the transformation functions from `irspecflow.transformations`. These functions are not currently re-exported from the package root.
 
 Direct construction of a `Spectrum` also remains supported:
 
@@ -154,7 +328,7 @@ spectrum = Spectrum(
 )
 ```
 
-A runnable import-and-validation example is available in `examples/basic_workflow.py`.
+A runnable import, validation, interpolation, and response-conversion example is available in `examples/basic_workflow.py`.
 
 ## Current Import Scope
 
@@ -177,10 +351,10 @@ The current import interface does not provide:
 
 ## Planned Features
 
-Future releases are planned to add:
+Future development may add:
 
-- absorbance and transmittance conversion utilities;
-- utilities for common spectral grids and interpolation;
+- additional response-conversion directions and spectral-axis unit support;
+- collection-level common-grid construction and batch or dataset transformation;
 - spectral visualization and quantitative quality control;
 - baseline correction and Savitzky-Golay smoothing and derivatives;
 - standard normal variate (SNV), multiplicative scatter correction (MSC), and comparison of preprocessing methods;
@@ -191,6 +365,9 @@ Future releases are planned to add:
 
 ```text
 irspecflow/
+├── .github/
+│   └── workflows/
+│       └── tests.yml
 ├── data/
 │   ├── README.md
 │   ├── example_spectrum.csv
@@ -206,10 +383,12 @@ irspecflow/
 │       ├── preprocessing.py
 │       ├── qc.py
 │       ├── spectrum.py
+│       ├── transformations.py
 │       └── validation.py
 ├── tests/
 │   ├── test_import.py
 │   ├── test_spectrum.py
+│   ├── test_transformations.py
 │   └── test_validation.py
 ├── .gitignore
 ├── README.md
