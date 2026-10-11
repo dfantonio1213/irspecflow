@@ -6,7 +6,7 @@ IRSpecFlow is a Python package under development for importing, validating, prep
 
 ## Status
 
-IRSpecFlow is in early development. The current implementation provides a `Spectrum` data model for one-dimensional infrared spectra, a generic importer for reading one local delimited-text spectrum file into a `Spectrum`, structural validation for defined conditions observable from one stored spectrum, and explicit single-spectrum transformations for percent-transmittance-to-absorbance conversion and linear interpolation to a caller-supplied target axis.
+IRSpecFlow is in early development. The current implementation provides a `Spectrum` data model for one-dimensional infrared spectra, a generic importer for reading one local delimited-text spectrum file into a `Spectrum`, structural validation for defined conditions observable from one stored spectrum, explicit single-spectrum transformations for percent-transmittance-to-absorbance conversion and linear interpolation to a caller-supplied target axis, composable plotting for one spectrum or overlays of multiple spectra, and the threshold-free `response_range()` quality diagnostic.
 
 ### Spectrum model
 
@@ -208,6 +208,43 @@ from irspecflow.transformations import (
 
 The transformation functions are not re-exported from the package root.
 
+### Visualization and quality control
+
+`irspecflow.plotting` provides `plot_spectrum()` for plotting one `Spectrum` and `plot_spectra()` for overlaying multiple spectra.
+
+Both functions accept ordinary `Spectrum` objects and subclasses. A caller-supplied Matplotlib `Axes` may be used, or the plotting helper can create axes when none are supplied. Each function returns the exact `Axes` used so titles, legends, styling, display, and file output remain under caller control.
+
+Plotting uses the stored spectral axis and response directly. The helpers do not sort, convert, interpolate, repair, or otherwise transform the source spectrum. They also leave the supplied `Spectrum` unchanged.
+
+For an exact `axis_unit="cm^-1"` declaration, the default display follows the conventional high-to-low wavenumber direction by changing the axes view only. The stored axis order is not reversed. The explicit `axis_descending` setting can override the display direction when an ascending or descending view is required.
+
+Default labels are deliberately conservative and use the supplied scientific declarations. Exact `cm^-1` axes use a wavenumber label, while undeclared or unrecognized axis information falls back to a neutral axis label. Response labels similarly use recognized declarations where possible and otherwise fall back to a neutral response label. A non-empty `spectrum_id` is used as the default plotted-line label.
+
+`plot_spectra()` does not require its spectra to have equal lengths or identical numerical grids. Each stored spectrum is plotted independently; the function does not construct a common grid or perform implicit interpolation.
+
+The plotting helpers do not automatically create a legend, call Matplotlib's display functions, or save figures.
+
+`irspecflow.qc.response_range()` provides the first implemented numerical quality-control diagnostic. It returns a plain Python `float` calculated as:
+
+```text
+max(response) - min(response)
+```
+
+A one-point finite response therefore has a response range of `0.0`. Empty responses and responses containing `NaN` or positive or negative infinity are rejected because the range cannot be calculated meaningfully from those values.
+
+The diagnostic operates only on the stored response. Axis-only structural findings and scientific declaration findings that do not affect the numerical response calculation do not prevent it from being evaluated. The supplied spectrum remains unchanged.
+
+The numerical value is representation-dependent. For example, an absorbance range and a percent-transmittance range use different response scales and should not be treated as intrinsically comparable values. `response_range()` does not accept a QC threshold, classify a spectrum as acceptable or unacceptable, diagnose clipping or saturation, or write a QC result into spectrum metadata or provenance. Scientific interpretation and acceptance decisions remain the caller's responsibility.
+
+Import these functions from their modules:
+
+```python
+from irspecflow.plotting import plot_spectra, plot_spectrum
+from irspecflow.qc import response_range
+```
+
+The plotting and QC functions are not re-exported from the package root.
+
 ## Basic Usage
 
 After cloning the repository and installing IRSpecFlow, the included synthetic absorbance CSV can be imported from the repository root with explicit column selection and scientific descriptors:
@@ -328,7 +365,7 @@ spectrum = Spectrum(
 )
 ```
 
-A runnable import, validation, interpolation, and response-conversion example is available in `examples/basic_workflow.py`.
+A runnable import, validation, interpolation, and response-conversion example is available in `examples/basic_workflow.py`. A separate plotting and response-range example is available in `examples/visualization_qc.py`.
 
 ## Current Import Scope
 
@@ -355,7 +392,7 @@ Future development may add:
 
 - additional response-conversion directions and spectral-axis unit support;
 - collection-level common-grid construction and batch or dataset transformation;
-- spectral visualization and quantitative quality control;
+- additional quality-control diagnostics beyond `response_range()`;
 - baseline correction and Savitzky-Golay smoothing and derivatives;
 - standard normal variate (SNV), multiplicative scatter correction (MSC), and comparison of preprocessing methods;
 - hierarchical aggregation of spectra and representative-spectrum statistics;
@@ -373,7 +410,8 @@ irspecflow/
 │   ├── example_spectrum.csv
 │   └── example_spectrum_headerless.tsv
 ├── examples/
-│   └── basic_workflow.py
+│   ├── basic_workflow.py
+│   └── visualization_qc.py
 ├── src/
 │   └── irspecflow/
 │       ├── __init__.py
@@ -387,6 +425,8 @@ irspecflow/
 │       └── validation.py
 ├── tests/
 │   ├── test_import.py
+│   ├── test_plotting.py
+│   ├── test_qc.py
 │   ├── test_spectrum.py
 │   ├── test_transformations.py
 │   └── test_validation.py
